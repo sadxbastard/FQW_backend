@@ -1,3 +1,57 @@
+from django.contrib.auth.models import AbstractUser
 from django.db import models
 
-# Create your models here.
+# Расширенный пользователь
+class User(AbstractUser):
+    is_teacher = models.BooleanField(default=True)  # пока только учителя
+
+# Класс
+class Classroom(models.Model):
+    name = models.CharField(max_length=255)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='classes')
+
+# Ученик
+class Student(models.Model):
+    classroom = models.ForeignKey(Classroom, on_delete=models.CASCADE, related_name='students')
+    name = models.CharField(max_length=255)
+    student_id = models.CharField(max_length=12, unique=True)  # уникальный ID для прохождения тестов
+
+# Тест
+class Test(models.Model):
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    classroom = models.ForeignKey(Classroom, on_delete=models.CASCADE, related_name='tests')
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+
+# Вопрос
+class Question(models.Model):
+    test = models.ForeignKey(Test, on_delete=models.CASCADE, related_name='questions')
+    text = models.TextField()
+    QUESTION_TYPES = (
+        ('one', 'Один ответ'),
+        ('multiple', 'Несколько ответов'),
+        ('text', 'Развернутый ответ'),
+    )
+    question_type = models.CharField(max_length=10, choices=QUESTION_TYPES)
+
+# Варианты ответа
+class Answer(models.Model):
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='answers')
+    text = models.CharField(max_length=255)
+    is_correct = models.BooleanField(default=False)
+
+# Ответ ученика
+class StudentAnswer(models.Model):
+    student = models.ForeignKey(Student, on_delete=models.CASCADE)
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    selected_answers = models.ManyToManyField(Answer, blank=True)  # для one/multiple
+    text_answer = models.TextField(blank=True)  # для text
+    is_checked = models.BooleanField(default=False)
+    is_correct = models.BooleanField(default=False)
+
+# Результат прохождения теста
+class StudentTestResult(models.Model):
+    student = models.ForeignKey(Student, on_delete=models.CASCADE)
+    test = models.ForeignKey(Test, on_delete=models.CASCADE)
+    score = models.FloatField()
+    completed_at = models.DateTimeField(auto_now_add=True)
