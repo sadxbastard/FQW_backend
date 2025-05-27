@@ -22,3 +22,8 @@ class ClassroomSerializer(serializers.ModelSerializer):
         model = Classroom
         fields = ['id', 'name', 'owner']
         read_only_fields = ['id', 'owner']
+
+class TestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Test
+        fields = ['id', 'title', 'description', 'classroom']

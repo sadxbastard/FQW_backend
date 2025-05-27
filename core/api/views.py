@@ -3,9 +3,11 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import generics
-from .serializers import RegisterSerializer
+from rest_framework.exceptions import PermissionDenied
+
+
+from .serializers import RegisterSerializer, ClassroomSerializer, TestSerializer
 from main.models import *
-from .serializers import ClassroomSerializer
 
 class RegisterView(APIView):
     def post(self, request):
@@ -24,3 +26,14 @@ class ClassroomListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
+
+class TestCreateView(generics.CreateAPIView):
+    queryset = Test.objects.all()
+    serializer_class = TestSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        classroom = serializer.validated_data['classroom']
+        if classroom.owner != self.request.user:
+            raise PermissionDenied("Вы не можете создавать тесты в чужом классе.")
+        serializer.save(created_by=self.request.user)
