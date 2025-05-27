@@ -3,7 +3,12 @@ from django.db import models
 
 # Расширенный пользователь
 class User(AbstractUser):
-    is_teacher = models.BooleanField(default=True)  # пока только учителя
+    ROLE_CHOICES = (
+        ('teacher', 'Teacher'),
+        ('student', 'Student'),
+        ('admin', 'Admin'),
+    )
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='teacher')
 
 # Класс
 class Classroom(models.Model):
