@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from main.models import User
+from main.models import *
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -16,3 +16,9 @@ class RegisterSerializer(serializers.ModelSerializer):
             role=validated_data.get('role', 'teacher')  # default: teacher
         )
         return user
+
+class ClassroomSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Classroom
+        fields = ['id', 'name', 'owner']
+        read_only_fields = ['id', 'owner']
