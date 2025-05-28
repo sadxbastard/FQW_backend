@@ -1,6 +1,6 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, generics
+from rest_framework import status, generics, viewsets
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.exceptions import PermissionDenied
 
@@ -63,6 +63,19 @@ class LaunchTestView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         serializer.save()
+
+# Получение / создание / редактирование вопросов и вариантов ответов к ним
+### НЕОБХОДИМО ДОДЕЛАТЬ РЕДАКТИРОВАНИЕ - НЕ РАБОТАЕТ
+class QuestionViewSet(viewsets.ModelViewSet):
+    serializer_class = QuestionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Question.objects.filter(test__created_by=self.request.user)
+
+    def perform_create(self, serializer):
+        test_id = self.kwargs.get('test_id')
+        serializer.save(test_id=test_id)
 
 # Получение всех студентов определенного класса текущего пользователя
 class StudentListView(generics.ListAPIView):
@@ -133,8 +146,8 @@ class SubmitTestView(APIView):
         score = (correct_count / total_checked) * 100 if total_checked else 0
 
         StudentTestResult.objects.update_or_create(
-            student_id=student_id,
-            test_id=test_id,
+            student=Student.objects.get(id=student_id),
+            test=Test.objects.get(id=test_id),
             defaults={
                 'score': score,
                 'completed_at': datetime.now()
@@ -142,3 +155,26 @@ class SubmitTestView(APIView):
         )
 
         return Response({'message': 'Test submitted and checked', 'score': score}, status=200)
+
+# Список результатов по классу
+class ClassTestResultsView(generics.ListAPIView):
+    serializer_class = StudentTestResultSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        class_id = self.kwargs['class_id']
+        return StudentTestResult.objects.filter(
+            student__classroom__id=class_id,
+            student__classroom__owner=self.request.user
+        ).select_related('test', 'student')
+
+# Список результатов ученика (доступна, как для учителя, так и для ученика)
+class StudentTestResultsView(generics.ListAPIView):
+    serializer_class = StudentTestResultSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        student_id = self.kwargs['student_id']
+        return StudentTestResult.objects.filter(
+            student__id=student_id
+        ).select_related('test', 'student')

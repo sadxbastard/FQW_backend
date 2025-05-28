@@ -1,6 +1,11 @@
 from django.urls import path
 from .views import *
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework.routers import DefaultRouter
+
+question_router = DefaultRouter()
+# GET/POST
+question_router.register(r'tests/(?P<test_id>\d+)/questions', QuestionViewSet, basename='test-questions')
 
 urlpatterns = [
     # POST
@@ -20,9 +25,15 @@ urlpatterns = [
     # POST
     path('students/create/', StudentCreateView.as_view(), name='student-create'),
     # POST
-    path('answers/', StudentAnswerView.as_view(), name='submit-answer'),
+    path('submit-answer/', StudentAnswerView.as_view(), name='submit-answer'),
     # GET
     path('student-answers/<int:student_id>/<int:test_id>/', StudentTestAnswersView.as_view(), name='student-test-answers'),
     # POST
     path('submit-test/', SubmitTestView.as_view(), name='submit-test'),
+    # GET
+    path('results/class/<int:class_id>/', ClassTestResultsView.as_view(), name='class-test-results'),
+    # GET
+    path('results/student/<str:student_id>/', StudentTestResultsView.as_view(), name='student-test-results'),
 ]
+
+urlpatterns += question_router.urls
