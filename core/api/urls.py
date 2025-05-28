@@ -34,6 +34,10 @@ urlpatterns = [
     path('results/class/<int:class_id>/', ClassTestResultsView.as_view(), name='class-test-results'),
     # GET
     path('results/student/<str:student_id>/', StudentTestResultsView.as_view(), name='student-test-results'),
+    # GET
+    path('text-answers/<int:test_id>/', TextAnswersByTestView.as_view(), name='text-answers-by-test'),
+    # PATCH
+    path('text-answers/check/<int:pk>/', MarkTextAnswerView.as_view(), name='check-text-answer'),
 ]
 
 urlpatterns += question_router.urls

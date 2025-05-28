@@ -134,3 +134,24 @@ class StudentTestResultSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentTestResult
         fields = ['id', 'test_title', 'student_name', 'score', 'completed_at']
+
+# Сериализатор для показа текстовых ответов
+class TextAnswerReviewSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.name', read_only=True)
+    question_text = serializers.CharField(source='question.text', read_only=True)
+
+    class Meta:
+        model = StudentAnswer
+        fields = ['id', 'student_name', 'question_text', 'text_answer', 'is_correct', 'is_checked']
+
+# Сериализатор для ручной отметки ответа
+class TextAnswerCheckSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentAnswer
+        fields = ['id', 'is_correct', 'is_checked']
+
+    def update(self, instance, validated_data):
+        instance.is_correct = validated_data['is_correct']
+        instance.is_checked = True
+        instance.save()
+        return instance

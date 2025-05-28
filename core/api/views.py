@@ -156,6 +156,24 @@ class SubmitTestView(APIView):
 
         return Response({'message': 'Test submitted and checked', 'score': score}, status=200)
 
+# Получение текстовых ответов по тесту
+class TextAnswersByTestView(generics.ListAPIView):
+    serializer_class = TextAnswerReviewSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        test_id = self.kwargs['test_id']
+        return StudentAnswer.objects.filter(
+            question__test_id=test_id,
+            question__question_type='text'
+        ).select_related('student', 'question')
+
+# Ручная проверка текстового ответа (обновление отметки ответа)
+class MarkTextAnswerView(generics.UpdateAPIView):
+    queryset = StudentAnswer.objects.filter(question__question_type='text')
+    serializer_class = TextAnswerCheckSerializer
+    permission_classes = [IsAuthenticated]
+
 # Список результатов по классу
 class ClassTestResultsView(generics.ListAPIView):
     serializer_class = StudentTestResultSerializer
