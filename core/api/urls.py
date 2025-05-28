@@ -3,14 +3,26 @@ from .views import *
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
+    # POST
     path('register/', RegisterView.as_view(), name='register'),
+    # POST
     path('login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    # POST
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # GET/POST
     path('tests/', TestListCreateView.as_view(), name='test-list-create'),
+    # GET/POST
     path('tests/launch/', LaunchTestView.as_view(), name='test-launch'),
+    # GET/POST
     path('classrooms/', ClassroomListCreateView.as_view(), name='classroom-list-create'),
+    # GET
     path('classrooms/<int:classroom_id>/students/', StudentListView.as_view(), name='student-list'),
+    # POST
     path('students/create/', StudentCreateView.as_view(), name='student-create'),
+    # POST
     path('answers/', StudentAnswerView.as_view(), name='submit-answer'),
+    # GET
     path('student-answers/<int:student_id>/<int:test_id>/', StudentTestAnswersView.as_view(), name='student-test-answers'),
+    # POST
+    path('submit-test/', SubmitTestView.as_view(), name='submit-test'),
 ]
