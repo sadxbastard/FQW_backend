@@ -25,8 +25,17 @@ class Student(models.Model):
 class Test(models.Model):
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
-    classroom = models.ForeignKey(Classroom, on_delete=models.CASCADE, related_name='tests')
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+
+# Сессия тестирования
+class TestLaunch(models.Model):
+    test = models.ForeignKey(Test, on_delete=models.CASCADE)
+    classroom = models.ForeignKey(Classroom, on_delete=models.CASCADE)
+    launched_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.test.title} → {self.classroom.name}"
 
 # Вопрос
 class Question(models.Model):
