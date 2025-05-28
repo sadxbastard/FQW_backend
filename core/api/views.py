@@ -73,3 +73,8 @@ class StudentCreateView(generics.CreateAPIView):
     queryset = Student.objects.all()
     serializer_class = StudentSerializer
     permission_classes = [IsAuthenticated]
+
+# Вью для отправки ответа на вопрос
+class StudentAnswerView(generics.CreateAPIView):
+    queryset = StudentAnswer.objects.all()
+    serializer_class = StudentAnswerSerializer

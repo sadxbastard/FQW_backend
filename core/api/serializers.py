@@ -43,3 +43,8 @@ class StudentSerializer(serializers.ModelSerializer):
         if value.owner != request.user:
             raise serializers.ValidationError("Вы не являетесь владельцем этого класса.")
         return value
+
+class StudentAnswerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentAnswer
+        fields = ['id', 'student', 'question', 'selected_answers', 'text_answer']
