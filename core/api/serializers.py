@@ -48,3 +48,35 @@ class StudentAnswerSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentAnswer
         fields = ['id', 'student', 'question', 'selected_answers', 'text_answer']
+
+class AnswerOptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Answer
+        fields = ['id', 'text']
+
+class StudentAnswerDetailSerializer(serializers.ModelSerializer):
+    question_id = serializers.IntegerField(source='question.id', read_only=True)
+    question_text = serializers.CharField(source='question.text', read_only=True)
+    question_type = serializers.CharField(source='question.question_type', read_only=True)
+
+    selected_answer_ids = serializers.PrimaryKeyRelatedField(
+        many=True,
+        read_only=True,
+        source='selected_answers'
+    )
+
+    all_answers = AnswerOptionSerializer(source='question.answers', many=True, read_only=True)
+
+    class Meta:
+        model = StudentAnswer
+        fields = [
+            'id',
+            'question_id',
+            'question_text',
+            'question_type',
+            'all_answers',
+            'selected_answer_ids',
+            'text_answer',
+            'is_checked',
+            'is_correct',
+        ]

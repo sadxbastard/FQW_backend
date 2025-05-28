@@ -78,3 +78,12 @@ class StudentCreateView(generics.CreateAPIView):
 class StudentAnswerView(generics.CreateAPIView):
     queryset = StudentAnswer.objects.all()
     serializer_class = StudentAnswerSerializer
+
+# Вью для получения информации о прохождении теста учеником
+class StudentTestAnswersView(generics.ListAPIView):
+    serializer_class = StudentAnswerDetailSerializer
+
+    def get_queryset(self):
+        student_id = self.kwargs['student_id']
+        test_id = self.kwargs['test_id']
+        return StudentAnswer.objects.filter(student__id=student_id, question__test__id=test_id)

@@ -12,4 +12,5 @@ urlpatterns = [
     path('classrooms/<int:classroom_id>/students/', StudentListView.as_view(), name='student-list'),
     path('students/create/', StudentCreateView.as_view(), name='student-create'),
     path('answers/', StudentAnswerView.as_view(), name='submit-answer'),
+    path('student-answers/<int:student_id>/<int:test_id>/', StudentTestAnswersView.as_view(), name='student-test-answers'),
 ]
