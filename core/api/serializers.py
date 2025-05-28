@@ -26,9 +26,20 @@ class ClassroomSerializer(serializers.ModelSerializer):
 class TestSerializer(serializers.ModelSerializer):
     class Meta:
         model = Test
-        fields = ['id', 'title', 'description', 'classroom']
+        fields = ['id', 'title', 'description']
+
+class TestLaunchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TestLaunch
+        fields = ['id', 'test', 'classroom', 'launched_at', 'is_active']
 
 class StudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
         fields = ('id', 'name', 'student_id', 'classroom')
+
+    def validate_classroom(self, value):
+        request = self.context.get('request')
+        if value.owner != request.user:
+            raise serializers.ValidationError("Вы не являетесь владельцем этого класса.")
+        return value

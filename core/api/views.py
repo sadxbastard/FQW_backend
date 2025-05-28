@@ -4,7 +4,7 @@ from rest_framework import status, generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 
-from .serializers import RegisterSerializer, ClassroomSerializer, TestSerializer, StudentSerializer
+from .serializers import *
 from main.models import *
 
 class RegisterView(APIView):
@@ -25,25 +25,38 @@ class ClassroomListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
 
-# Создание тестов
-class TestCreateView(generics.CreateAPIView):
-    queryset = Test.objects.all()
-    serializer_class = TestSerializer
-    permission_classes = [IsAuthenticated]
 
-    def perform_create(self, serializer):
-        classroom = serializer.validated_data['classroom']
-        if classroom.owner != self.request.user:
-            raise PermissionDenied("Вы не можете создавать тесты в чужом классе.")
-        serializer.save(created_by=self.request.user)
-
-# Получение всех тестов
-class UserTestsListView(generics.ListAPIView):
+class TestListCreateView(generics.ListCreateAPIView):
     serializer_class = TestSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         return Test.objects.filter(created_by=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+class LaunchTestView(generics.ListCreateAPIView):
+    serializer_class = TestLaunchSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Получаем все запуски тестов, созданные в классах текущего пользователя.
+        Поддерживает фильтрацию по classroom.
+        """
+        queryset = TestLaunch.objects.filter(
+            classroom__owner=self.request.user
+        ).select_related('test', 'classroom')
+
+        classroom_id = self.request.query_params.get('classroom')
+        if classroom_id:
+            queryset = queryset.filter(classroom__id=classroom_id)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save()
 
 class StudentListView(generics.ListAPIView):
     serializer_class = StudentSerializer
@@ -54,3 +67,9 @@ class StudentListView(generics.ListAPIView):
         classroom_id = self.kwargs['classroom_id']
         # Проверяем, что пользователь — владелец этого класса
         return Student.objects.filter(classroom__id=classroom_id, classroom__owner=self.request.user)
+
+# Вью для добавления студента в класс
+class StudentCreateView(generics.CreateAPIView):
+    queryset = Student.objects.all()
+    serializer_class = StudentSerializer
+    permission_classes = [IsAuthenticated]
