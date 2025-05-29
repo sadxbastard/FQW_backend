@@ -3,6 +3,9 @@ from .views import *
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework.routers import DefaultRouter
 
+from rest_framework import permissions
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+
 question_router = DefaultRouter()
 # GET/POST
 question_router.register(r'tests/(?P<test_id>\d+)/questions', QuestionViewSet, basename='test-questions')
@@ -41,3 +44,10 @@ urlpatterns = [
 ]
 
 urlpatterns += question_router.urls
+
+# Swagger
+
+urlpatterns += [
+    path('schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('swagger/', SpectacularSwaggerView.as_view(url_name='schema')),
+]
