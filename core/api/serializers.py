@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from main.models import *
 
-# Для регистрации
+import uuid
+
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
 
@@ -21,20 +22,16 @@ class RegisterSerializer(serializers.ModelSerializer):
 class ClassroomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Classroom
-        fields = ['id', 'name', 'owner']
-        read_only_fields = ['id', 'owner']
+        fields = ['id', 'name']
+        read_only_fields = ['id']
 
-class TestSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Test
-        fields = ['id', 'title', 'description']
-
-class TestLaunchSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = TestLaunch
-        fields = ['id', 'test', 'classroom', 'launched_at', 'is_active']
+    def create(self, validated_data):
+        validated_data['owner'] = self.context['request'].user
+        return super().create(validated_data)
 
 class AnswerSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
+
     class Meta:
         model = Answer
         fields = ['id', 'text', 'is_correct']
@@ -69,10 +66,122 @@ class QuestionSerializer(serializers.ModelSerializer):
 
         return instance
 
+# Сериализатор для списка тестов (только id и title)
+class TestListSerializer(serializers.ModelSerializer):
+    question_count = serializers.IntegerField(
+        source='questions.count',
+        read_only=True
+    )
+    class Meta:
+        model = Test
+        fields = ['id', 'title', 'question_count']
+
+# Сериализатор для детального теста (с вопросами и ответами)
+class TestDetailSerializer(serializers.ModelSerializer):
+    questions = QuestionSerializer(many=True)
+
+    class Meta:
+        model = Test
+        fields = ['id', 'title', 'questions']
+
+    def create(self, validated_data):
+        questions_data = validated_data.pop('questions', [])
+        test = Test.objects.create(**validated_data)
+
+        for question_data in questions_data:
+            answers_data = question_data.pop('answers', [])
+            question = Question.objects.create(test=test, **question_data)
+            for answer_data in answers_data:
+                Answer.objects.create(question=question, **answer_data)
+
+        return test
+
+    def update(self, instance, validated_data):
+        instance.title = validated_data.get('title', instance.title)
+        instance.save()
+
+        questions_data = validated_data.get('questions')
+        if questions_data is not None:
+            existing_question_ids = {q.id for q in instance.questions.all()}
+            incoming_question_ids = {q.get('id') for q in questions_data if 'id' in q}
+
+            # Удаляем вопросы, которых больше нет в обновлённом списке
+            to_delete = existing_question_ids - incoming_question_ids
+            Question.objects.filter(id__in=to_delete).delete()
+
+            for question_data in questions_data:
+                answers_data = question_data.pop('answers', [])
+                question_id = question_data.get('id')
+
+                if question_id:
+                    # Обновление существующего вопроса
+                    question = Question.objects.get(id=question_id, test=instance)
+                    question.text = question_data.get('text', question.text)
+                    question.question_type = question_data.get('question_type', question.question_type)
+                    question.save()
+
+                    # Обновляем ответы
+                    question.answers.all().delete()
+                    for answer_data in answers_data:
+                        Answer.objects.create(question=question, **answer_data)
+                else:
+                    # Создание нового вопроса
+                    question = Question.objects.create(test=instance, **question_data)
+                    for answer_data in answers_data:
+                        Answer.objects.create(question=question, **answer_data)
+
+        return instance
+
+class TestLaunchSerializer(serializers.ModelSerializer):
+    test = serializers.PrimaryKeyRelatedField(queryset=Test.objects.all())
+    classrooms = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Classroom.objects.all(),
+        required=False
+    )
+
+    class Meta:
+        model = TestLaunch
+        fields = [
+            'id', 'session_id', 'test', 'classrooms',
+            'launched_at', 'expires_at', 'is_active'
+        ]
+        read_only_fields = ['id', 'session_id']
+
+    def validate(self, data):
+        request = self.context['request']
+        instance = getattr(self, 'instance', None)
+
+        # Получаем test из данных или существующего экземпляра
+        test = data.get('test', None)
+        if test is None and instance:
+            test = instance.test
+
+        if test and test.created_by != request.user:
+            raise serializers.ValidationError("Вы не являетесь владельцем этого теста.")
+
+        # Для PATCH-запросов проверяем только переданные данные
+        classrooms = data.get('classrooms', None)
+
+        # Если classrooms/students не переданы в PATCH - пропускаем проверку
+        if self.partial and classrooms is None:
+            return data
+
+        # Для создания или явного обновления связей
+        if not self.partial or classrooms is not None:
+            classrooms = classrooms or []
+            for classroom in classrooms:
+                if classroom.owner != request.user:
+                    raise serializers.ValidationError(f"Вы не владелец класса {classroom.name}.")
+
+        return data
+
+# Сериализатор для работы со студентом
 class StudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
-        fields = ('id', 'name', 'student_id', 'classroom')
+        fields = ['id', 'name', 'student_id', 'classroom']
+        read_only_fields = ['student_id', 'id']
 
     def validate_classroom(self, value):
         request = self.context.get('request')
@@ -80,20 +189,30 @@ class StudentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Вы не являетесь владельцем этого класса.")
         return value
 
-class StudentAnswerSerializer(serializers.ModelSerializer):
-    selected_answers = serializers.PrimaryKeyRelatedField(
-        queryset=Answer.objects.all(), many=True, required=False
-    )
+    def create(self, validated_data):
+        validated_data['student_id'] = self.generate_unique_id()
+        return super().create(validated_data)
+
+    def generate_unique_id(self):
+        # Генерация уникального 12-символьного идентификатора
+        return uuid.uuid4().hex[:12]
+
+class AnswerItemSerializer(serializers.Serializer):
+    question = serializers.IntegerField()
+    selected_answers = serializers.PrimaryKeyRelatedField(queryset=Answer.objects.all(), many=True, required=False)
+
+class SubmitAnswersStudentSerializer(serializers.Serializer):
+    student_id = serializers.CharField()
+    test_launch_id = serializers.IntegerField()
+    answers = AnswerItemSerializer(many=True)
+
+class StudentTestResultSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.name', read_only=True)
+    classroom = serializers.IntegerField(source='student.classroom.id', read_only=True)
 
     class Meta:
-        model = StudentAnswer
-        fields = ['id', 'student', 'question', 'selected_answers', 'text_answer']
-
-    def create(self, validated_data):
-        selected_answers = validated_data.pop('selected_answers', [])
-        student_answer = StudentAnswer.objects.create(**validated_data)
-        student_answer.selected_answers.set(selected_answers)
-        return student_answer
+        model = StudentTestResult
+        fields = ['id', 'student', 'student_name', 'classroom', 'score', 'completed_at']
 
 class AnswerOptionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -122,36 +241,43 @@ class StudentAnswerDetailSerializer(serializers.ModelSerializer):
             'question_type',
             'all_answers',
             'selected_answer_ids',
-            'text_answer',
             'is_checked',
             'is_correct',
         ]
-# Для результатов прохождения тестов
-class StudentTestResultSerializer(serializers.ModelSerializer):
-    test_title = serializers.CharField(source='test.title')
-    student_name = serializers.CharField(source='student.name')
 
-    class Meta:
-        model = StudentTestResult
-        fields = ['id', 'test_title', 'student_name', 'score', 'completed_at']
 
-# Сериализатор для показа текстовых ответов
-class TextAnswerReviewSerializer(serializers.ModelSerializer):
-    student_name = serializers.CharField(source='student.name', read_only=True)
-    question_text = serializers.CharField(source='question.text', read_only=True)
+# Сериализатор для ручной отметки ответа на текстовый вопрос
+# class TextAnswerCheckSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = StudentAnswer
+#         fields = ['id', 'is_correct', 'is_checked']
+#
+#     def update(self, instance, validated_data):
+#         instance.is_correct = validated_data['is_correct']
+#         instance.is_checked = True
+#         instance.save()
+#         return instance
 
-    class Meta:
-        model = StudentAnswer
-        fields = ['id', 'student_name', 'question_text', 'text_answer', 'is_correct', 'is_checked']
+# Получение данных для генерации теста и их валидация
+class TestGenerationRequestSerializer(serializers.Serializer):
+    topic = serializers.CharField()
+    question_count = serializers.IntegerField(min_value=1, max_value=20)
+    type_distribution = serializers.DictField(
+        child=serializers.IntegerField(min_value=0),
+    )
 
-# Сериализатор для ручной отметки ответа
-class TextAnswerCheckSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = StudentAnswer
-        fields = ['id', 'is_correct', 'is_checked']
+    def validate(self, data):
+        total = sum(data['type_distribution'].values())
+        if total != data['question_count']:
+            raise serializers.ValidationError(
+                f"Сумма количества вопросов по типам ({total}) не равна общему количеству вопросов ({data['question_count']})"
+            )
 
-    def update(self, instance, validated_data):
-        instance.is_correct = validated_data['is_correct']
-        instance.is_checked = True
-        instance.save()
-        return instance
+        allowed_keys = {'one', 'multiple', 'true_false'}
+        unknown_keys = set(data['type_distribution'].keys()) - allowed_keys
+        if unknown_keys:
+            raise serializers.ValidationError(
+                f"Недопустимые типы вопросов: {', '.join(unknown_keys)}"
+            )
+
+        return data

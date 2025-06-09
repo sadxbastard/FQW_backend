@@ -1,51 +1,48 @@
 from django.urls import path
 from .views import *
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework.routers import DefaultRouter
-
-from rest_framework import permissions
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-question_router = DefaultRouter()
-# GET/POST
-question_router.register(r'tests/(?P<test_id>\d+)/questions', QuestionViewSet, basename='test-questions')
+router = DefaultRouter()
+# GET/POST/PUT/DELETE
+router.register(r'classrooms', ClassroomViewSet, basename='classroom')
+
+router.register(r'students', StudentViewSet, basename='student') # GET: students/?classroom_id=number
+
+router.register(r'tests', TestViewSet, basename='test')
+
+router.register(r'test-launches', TestLaunchViewSet, basename='test-launch')
+
 
 urlpatterns = [
-    # POST
+    # POST | Зарегистрировать нового пользователя (преподавателя) по username и password
     path('register/', RegisterView.as_view(), name='register'),
-    # POST
-    path('login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    # POST
-    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    # GET/POST
-    path('tests/', TestListCreateView.as_view(), name='test-list-create'),
-    # GET/POST
-    path('tests/launch/', LaunchTestView.as_view(), name='test-launch'),
-    # GET/POST
-    path('classrooms/', ClassroomListCreateView.as_view(), name='classroom-list-create'),
-    # GET
-    path('classrooms/<int:classroom_id>/students/', StudentListView.as_view(), name='student-list'),
-    # POST
-    path('students/create/', StudentCreateView.as_view(), name='student-create'),
-    # POST
-    path('submit-answer/', StudentAnswerView.as_view(), name='submit-answer'),
-    # GET
-    path('student-answers/<int:student_id>/<int:test_id>/', StudentTestAnswersView.as_view(), name='student-test-answers'),
-    # POST
-    path('submit-test/', SubmitTestView.as_view(), name='submit-test'),
-    # GET
-    path('results/class/<int:class_id>/', ClassTestResultsView.as_view(), name='class-test-results'),
-    # GET
-    path('results/student/<str:student_id>/', StudentTestResultsView.as_view(), name='student-test-results'),
-    # GET
-    path('text-answers/<int:test_id>/', TextAnswersByTestView.as_view(), name='text-answers-by-test'),
-    # PATCH
-    path('text-answers/check/<int:pk>/', MarkTextAnswerView.as_view(), name='check-text-answer'),
+
+    # POST | Аутентифицировать пользователя (получить access и refresh токены)
+    path('login/', DecoratedTokenObtainPairView.as_view(), name='token_obtain_pair'),
+
+    # POST | Обновить access токен по текущему refresh токену
+    path('token/refresh/', DecoratedTokenRefreshView.as_view(), name='token_refresh'),
+
+    # -------------------------------------------------------------------------------------
+
+    # POST | Отправить ответы на вопросы теста
+    path('submit-answers/', SubmitAnswersStudentView.as_view(), name='submit-answer'),
+
+    # PATCH | Ручная проверка текстового ответа (обновление отметки ответа)
+    # path('text-answers/check/<int:pk>/', MarkTextAnswerView.as_view(), name='check-text-answer'),
+
+    # GET | Получить результаты проведения тестирования по сессии
+    path('results/<int:launch_id>/', TestLaunchResultView.as_view(), name='session-test-results'),
+
+    ## GET | Получить тест, выбранные ответы и увидеть их состояние (проверено ли, правильность) по ученику и тесту
+    path('student/<str:student_id>/launch/<int:launch_id>/answers/', StudentTestAnswersView.as_view(), name='student-test-answers'),
+
+    # POST | Запрос на генерацию теста с указанием промпта
+    path('generate-test/', GenerateTestView.as_view(), name='generate-test'),
 ]
 
-urlpatterns += question_router.urls
-
-# Swagger
+urlpatterns += router.urls
 
 urlpatterns += [
     path('schema/', SpectacularAPIView.as_view(), name='schema'),

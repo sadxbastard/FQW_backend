@@ -141,7 +141,21 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Your API',
+    'TITLE': 'API',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    # Основные настройки сортировки
+    'TAGS_ORDER': ['Аутентификация', 'Тесты', 'Сессии тестов', 'Статистика и успеваемость', 'Классы',  'Ученики', 'GigaChat'],  # Чёткий порядок тегов
+    'GROUP_OPERATIONS_BY_TAG': True,  # Обязательно для группировки
+
+    # Дополнительные настройки
+    'DISPLAY_TAGS_IN_NAVIGATION': True,  # Показывать теги в сайдбаре
+    'SORT_OPERATIONS': False,  # Отключаем сортировку операций внутри тегов
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=90),  # Увеличиваем до 1 часа (было 5 минут)
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),     # Refresh токен на 7 дней
+    'ROTATE_REFRESH_TOKENS': False,                   # Генерировать новый refresh токен при каждом обновлении
+    'BLACKLIST_AFTER_ROTATION': False,                # Старый refresh токен становится недействительным
 }
