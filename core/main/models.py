@@ -48,6 +48,11 @@ class Answer(models.Model):
 # Сессия тестирования
 class TestLaunch(models.Model):
     test = models.ForeignKey(Test, on_delete=models.CASCADE)
+    title = models.CharField(
+        max_length=255,
+        verbose_name="Название сессии",
+        help_text="Название для идентификации сессии"
+    )
     classrooms = models.ManyToManyField(Classroom, blank=True)
     launched_at = models.DateTimeField(null=True, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)

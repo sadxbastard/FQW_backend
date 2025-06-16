@@ -40,6 +40,10 @@ urlpatterns = [
 
     # POST | Запрос на генерацию теста с указанием промпта
     path('generate-test/', GenerateTestView.as_view(), name='generate-test'),
+
+    # POST | Запрос на экспорт теста в формат Word
+    path('export/word/', ExportWordView.as_view(), name='export-word'),
+
 ]
 
 urlpatterns += router.urls

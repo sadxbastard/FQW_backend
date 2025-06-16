@@ -18,11 +18,14 @@ from .serializers import *
 from main.models import *
 
 from django.db import transaction, models
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 import json
 
 from .api_docs import *
 
+from docx import Document
+from io import BytesIO
 
 @REGISTER_SCHEMA
 class RegisterView(APIView):
@@ -114,7 +117,11 @@ class TestViewSet(viewsets.ModelViewSet):
                     is_correct=answer.is_correct
                 )
 
-        return Response({'detail': f"Тест успешно клонирован как '{cloned_test.title}'", 'id': cloned_test.id})
+        return Response({
+            'id': cloned_test.id,
+            'title': cloned_test.title,
+            'question_count': cloned_test.questions.count()
+        }, status=status.HTTP_201_CREATED)
 
 @TEST_LAUNCH_SCHEMA
 class TestLaunchViewSet(viewsets.ModelViewSet):
@@ -181,7 +188,6 @@ class StudentViewSet(viewsets.ModelViewSet):
 
 @SUBMIT_ANSWERS_SCHEMA
 # Отправка выбранных вариантов ответов на вопрос
-
 class SubmitAnswersStudentView(APIView):
     def post(self, request):
         serializer = SubmitAnswersStudentSerializer(data=request.data)
@@ -337,7 +343,8 @@ def check_student_answers(student, test_launch, answers):
 
 @GENERATE_TEST_SCHEMA
 class GenerateTestView(APIView):
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny] # Доступно для обоих типов пользователей
 
     def post(self, request):
         serializer = TestGenerationRequestSerializer(data=request.data)
@@ -357,21 +364,42 @@ class GenerateTestView(APIView):
                                   "AI_answer": ai_response}, status=status.HTTP_400_BAD_REQUEST)
 
         # Создание теста и вопросов
+        # UPD: Формирование валидного JSON для фронта, с возможностью использования реализованного механизма сохранения теста
         try:
-            with transaction.atomic():
-                test = Test.objects.create(
-                    title=f"«{data['topic']}»",
-                    created_by=request.user
-                )
-                self.create_questions(test, questions_data)
+            # with transaction.atomic():
+            #     test = Test.objects.create(
+            #         title=f"«{data['topic']}»",
+            #         created_by=request.user
+            #     )
+            #     self.create_questions(test, questions_data)
+            #
+            # return Response({
+            #     'message': 'Тест успешно создан',
+            #     'test_id': test.id,
+            #     'answer_AI': ai_response
+            # })
+            generated = {
+                "title": f"«{data['topic']}»",
+                "questions": []
+            }
+            for q in questions_data:
+                answers = []
+                correct = set(q['correct_answers'])
 
-            return Response({
-                'message': 'Тест успешно создан',
-                'test_id': test.id,
-                'answer_AI': ai_response
-            })
+                for option in q['options']:
+                    answers.append({
+                        "text": option,
+                        "is_correct": option in correct
+                    })
+
+                generated["questions"].append({
+                    "text": q['question'],
+                    "question_type": q['type'],
+                    "answers": answers
+                })
+            return Response(generated, status=200)
         except Exception as e:
-            return Response({"error": f"Ошибка при сохранении данных: {str(e)}"},
+            return Response({"error": f"Ошибка обработки данных: {str(e)}"},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def extract_json(self, raw: str) -> str:
@@ -384,26 +412,26 @@ class GenerateTestView(APIView):
             raw = raw[:-3].strip()
         return raw
 
-    def create_questions(self, test, questions_data):
-        for q in questions_data:
-            q_type = q['type']
-            q_text = q['question']
-            question = Question.objects.create(
-                test=test,
-                text=q_text,
-                question_type=q_type
-            )
-
-            if q_type in ['one', 'multiple', 'true_false']:
-                options = q['options']
-                correct = set(q['correct_answers'])
-
-                for option in options:
-                    Answer.objects.create(
-                        question=question,
-                        text=option,
-                        is_correct=option in correct
-                    )
+    # def create_questions(self, test, questions_data):
+    #     for q in questions_data:
+    #         q_type = q['type']
+    #         q_text = q['question']
+    #         question = Question.objects.create(
+    #             test=test,
+    #             text=q_text,
+    #             question_type=q_type
+    #         )
+    #
+    #         if q_type in ['one', 'multiple', 'true_false']:
+    #             options = q['options']
+    #             correct = set(q['correct_answers'])
+    #
+    #             for option in options:
+    #                 Answer.objects.create(
+    #                     question=question,
+    #                     text=option,
+    #                     is_correct=option in correct
+    #                 )
 
     def build_prompt(self, data):
         """
@@ -415,13 +443,12 @@ class GenerateTestView(APIView):
         :return: текст запроса
         """
         topic = data['topic']
-        question_count = data['question_count']
         distribution = data['type_distribution']
         one_count = distribution.get("one", 0)
         multiple_count = distribution.get("multiple", 0)
         true_false_count = distribution.get("true_false", 0)
 
-        prompt = f"""Сгенерируй РОВНО {question_count} вопросов по теме «{topic}», СТРОГО придерживаясь следующего формата:
+        prompt = f"""Сгенерируй вопросы по теме «{topic}», СТРОГО придерживаясь следующего формата:
 Верни список вопросов в виде JSON-массива, где каждый вопрос — это объект со следующими полями:
 - "type": тип вопроса ("one", "multiple", "true_false");
 - "question": текст вопроса;
@@ -455,3 +482,44 @@ class GenerateTestView(APIView):
 Верни только валидный JSON-массив вопросов. Никаких пояснений или форматирования вне JSON. Ответ должен быть пригоден для автоматического парсинга.
 """
         return prompt
+
+
+class ExportWordView(APIView):
+    permission_classes = []  # доступно всем
+
+    def post(self, request):
+        try:
+            data = request.data
+            mode = data.get("mode", "test")  # 'test' или 'answers'
+            title = data.get("title", "Без названия")
+            questions = data.get("questions", [])
+
+            doc = Document()
+            doc.add_heading(title, level=0)
+
+            for q in questions:
+                doc.add_paragraph(f"{q['text']}", style='List Number')
+
+                for idx, a in enumerate(q["answers"], start=1):
+                    if mode == "answers":
+                        text = f" {idx}) {a['text']} {'(+)' if a['is_correct'] else ''}"
+                    else:
+                        text = f" {idx}) {a['text']}"
+                    doc.add_paragraph(text, style='BodyText')
+
+                doc.add_paragraph("")  # пустая строка между вопросами
+
+            buffer = BytesIO()
+            doc.save(buffer)
+            buffer.seek(0)
+
+            response = HttpResponse(
+                buffer.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            )
+            filename = f"{'Тест' if mode == 'test' else 'Ответы'}_{title}.docx"
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)

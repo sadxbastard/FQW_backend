@@ -143,7 +143,7 @@ class TestLaunchSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestLaunch
         fields = [
-            'id', 'session_id', 'test', 'classrooms',
+            'id', 'title', 'session_id', 'test', 'classrooms',
             'launched_at', 'expires_at', 'is_active'
         ]
         read_only_fields = ['id', 'session_id']
@@ -261,17 +261,12 @@ class StudentAnswerDetailSerializer(serializers.ModelSerializer):
 # Получение данных для генерации теста и их валидация
 class TestGenerationRequestSerializer(serializers.Serializer):
     topic = serializers.CharField()
-    question_count = serializers.IntegerField(min_value=1, max_value=20)
     type_distribution = serializers.DictField(
         child=serializers.IntegerField(min_value=0),
     )
 
     def validate(self, data):
         total = sum(data['type_distribution'].values())
-        if total != data['question_count']:
-            raise serializers.ValidationError(
-                f"Сумма количества вопросов по типам ({total}) не равна общему количеству вопросов ({data['question_count']})"
-            )
 
         allowed_keys = {'one', 'multiple', 'true_false'}
         unknown_keys = set(data['type_distribution'].keys()) - allowed_keys
