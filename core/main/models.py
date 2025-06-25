@@ -17,6 +17,15 @@ class Classroom(models.Model):
     name = models.CharField(max_length=255)
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='classes')
 
+    @property
+    def student_count(self):
+        """Количество студентов в классе"""
+        return self.students.count()
+
+    def __str__(self):
+        return f"{self.name} (владелец: {self.owner.username})"
+
+
 # Ученик
 class Student(models.Model):
     classroom = models.ForeignKey(Classroom, on_delete=models.CASCADE, related_name='students')
@@ -60,16 +69,47 @@ class TestLaunch(models.Model):
     session_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
 
     def save(self, *args, **kwargs):
-        if not self.launched_at:
+        # Если это новая запись и не указано launched_at, устанавливаем текущее время
+        if not self.pk and not self.launched_at:
             self.launched_at = timezone.now()
 
-        # Если expires_at не указано, не меняем флаг, если пользователь сам задал is_active
-        if self.expires_at and self.expires_at < timezone.now():
-            self.is_active = False
-        elif self.expires_at and not self._manual_is_active_override:
-            self.is_active = True
+        # Если это обновление существующей записи и меняется expires_at
+        if self.pk and 'expires_at' in kwargs.get('update_fields', []):
+            if self.expires_at and self.expires_at <= timezone.now():
+                self.is_active = False
 
         super().save(*args, **kwargs)
+
+    @property
+    def is_scheduled(self):
+        """Проверяет, запланирована ли сессия (еще не началась)."""
+        return self.launched_at and self.launched_at > timezone.now()
+
+    def check_activity(self):
+        """Проверяет и обновляет статус активности сессии."""
+        now = timezone.now()
+
+        # Если сессия запланирована (еще не началась)
+        if self.launched_at and self.launched_at > now:
+            self.is_active = False
+
+        # Если сессия уже должна была начаться, но еще не закончилась
+        elif self.launched_at and self.launched_at <= now:
+            if self.expires_at and self.expires_at <= now:
+                # Сессия завершена по expires_at
+                self.is_active = False
+            else:
+                # Сессия активна (launched_at прошёл, expires_at еще нет или не задан)
+                self.is_active = True
+
+        # Если launched_at не задан (сессия создана без планирования)
+        else:
+            if self.expires_at and self.expires_at <= now:
+                self.is_active = False
+            else:
+                self.is_active = True
+
+        self.save(update_fields=['is_active'])
 
     def __str__(self):
         return f"{self.test.title} – {self.session_id}"

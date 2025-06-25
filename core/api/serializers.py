@@ -22,7 +22,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 class ClassroomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Classroom
-        fields = ['id', 'name']
+        fields = ['id', 'name', 'student_count']
         read_only_fields = ['id']
 
     def create(self, validated_data):
@@ -132,27 +132,77 @@ class TestDetailSerializer(serializers.ModelSerializer):
 
         return instance
 
+# class TestLaunchSerializer(serializers.ModelSerializer):
+#     test = serializers.PrimaryKeyRelatedField(queryset=Test.objects.all())
+#     classrooms = serializers.PrimaryKeyRelatedField(
+#         many=True,
+#         queryset=Classroom.objects.all(),
+#         required=False
+#     )
+#
+#     class Meta:
+#         model = TestLaunch
+#         fields = [
+#             'id', 'title', 'session_id', 'test', 'classrooms',
+#             'launched_at', 'expires_at', 'is_active'
+#         ]
+#         read_only_fields = ['id', 'session_id']
+#
+#     def validate(self, data):
+#         request = self.context['request']
+#         instance = getattr(self, 'instance', None)
+#
+#         # Получаем test из данных или существующего экземпляра
+#         test = data.get('test', None)
+#         if test is None and instance:
+#             test = instance.test
+#
+#         if test and test.created_by != request.user:
+#             raise serializers.ValidationError("Вы не являетесь владельцем этого теста.")
+#
+#         # Для PATCH-запросов проверяем только переданные данные
+#         classrooms = data.get('classrooms', None)
+#
+#         # Если classrooms/students не переданы в PATCH - пропускаем проверку
+#         if self.partial and classrooms is None:
+#             return data
+#
+#         # Для создания или явного обновления связей
+#         if not self.partial or classrooms is not None:
+#             classrooms = classrooms or []
+#             for classroom in classrooms:
+#                 if classroom.owner != request.user:
+#                     raise serializers.ValidationError(f"Вы не владелец класса {classroom.name}.")
+#
+#         return data
+
+# Сериализатор для работы со студентом
+
 class TestLaunchSerializer(serializers.ModelSerializer):
     test = serializers.PrimaryKeyRelatedField(queryset=Test.objects.all())
+    test_title = serializers.CharField(source='test.title', read_only=True)
     classrooms = serializers.PrimaryKeyRelatedField(
         many=True,
         queryset=Classroom.objects.all(),
         required=False
     )
+    is_scheduled = serializers.SerializerMethodField()
 
     class Meta:
         model = TestLaunch
         fields = [
             'id', 'title', 'session_id', 'test', 'classrooms',
-            'launched_at', 'expires_at', 'is_active'
+            'launched_at', 'expires_at', 'is_active', 'is_scheduled', 'test_title'
         ]
-        read_only_fields = ['id', 'session_id']
+        read_only_fields = ['id', 'session_id', 'is_scheduled']
+
+    def get_is_scheduled(self, obj):
+        return obj.is_scheduled
 
     def validate(self, data):
         request = self.context['request']
         instance = getattr(self, 'instance', None)
 
-        # Получаем test из данных или существующего экземпляра
         test = data.get('test', None)
         if test is None and instance:
             test = instance.test
@@ -160,23 +210,25 @@ class TestLaunchSerializer(serializers.ModelSerializer):
         if test and test.created_by != request.user:
             raise serializers.ValidationError("Вы не являетесь владельцем этого теста.")
 
-        # Для PATCH-запросов проверяем только переданные данные
         classrooms = data.get('classrooms', None)
-
-        # Если classrooms/students не переданы в PATCH - пропускаем проверку
         if self.partial and classrooms is None:
             return data
 
-        # Для создания или явного обновления связей
         if not self.partial or classrooms is not None:
             classrooms = classrooms or []
             for classroom in classrooms:
                 if classroom.owner != request.user:
                     raise serializers.ValidationError(f"Вы не владелец класса {classroom.name}.")
 
+        # Проверка, что expires_at не раньше launched_at
+        launched_at = data.get('launched_at', getattr(instance, 'launched_at', None))
+        expires_at = data.get('expires_at', None)
+
+        if launched_at and expires_at and expires_at < launched_at:
+            raise serializers.ValidationError("Время окончания не может быть раньше времени начала.")
+
         return data
 
-# Сериализатор для работы со студентом
 class StudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
@@ -203,16 +255,17 @@ class AnswerItemSerializer(serializers.Serializer):
 
 class SubmitAnswersStudentSerializer(serializers.Serializer):
     student_id = serializers.CharField()
-    test_launch_id = serializers.IntegerField()
+    test_launch_id = serializers.CharField()
     answers = AnswerItemSerializer(many=True)
 
 class StudentTestResultSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
     classroom = serializers.IntegerField(source='student.classroom.id', read_only=True)
+    student_id = serializers.CharField(source='student.student_id', read_only=True)
 
     class Meta:
         model = StudentTestResult
-        fields = ['id', 'student', 'student_name', 'classroom', 'score', 'completed_at']
+        fields = ['id', 'student', 'student_id', 'student_name', 'classroom', 'score', 'completed_at']
 
 class AnswerOptionSerializer(serializers.ModelSerializer):
     class Meta:

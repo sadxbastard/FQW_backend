@@ -123,17 +123,94 @@ class TestViewSet(viewsets.ModelViewSet):
             'question_count': cloned_test.questions.count()
         }, status=status.HTTP_201_CREATED)
 
+    @action(detail=False, methods=['get'],
+            url_path='by-session/(?P<session_id>[^/.]+)',
+            permission_classes=[AllowAny])  # Открытый доступ
+    def by_session(self, request, session_id=None):
+        try:
+            session = TestLaunch.objects.get(session_id=session_id)
+
+            if not session.is_active:
+                return Response(
+                    {"detail": "Эта сессия тестирования неактивна."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            test = session.test
+            serializer = self.get_serializer(test)
+            return Response(serializer.data)
+
+        except TestLaunch.DoesNotExist:
+            return Response(
+                {"detail": "Сессия не найдена"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        # try:
+        #     # Находим TestLaunch по session_id
+        #     test_launch = get_object_or_404(TestLaunch, session_id=session_id)
+        #
+        #     # Проверяем доступность сессии
+        #     if not test_launch.is_active:
+        #         return Response(
+        #             {"detail": "Эта сессия тестирования неактивна."},
+        #             status=status.HTTP_403_FORBIDDEN
+        #         )
+        #
+        #     # Получаем тест
+        #     test = test_launch.test
+        #     serializer = self.get_serializer(test)
+        #     return Response(serializer.data)
+        #
+        # except Exception as e:
+        #     return Response(
+        #         {"detail": str(e)},
+        #         status=status.HTTP_400_BAD_REQUEST
+        #     )
+
 @TEST_LAUNCH_SCHEMA
+# class TestLaunchViewSet(viewsets.ModelViewSet):
+#     serializer_class = TestLaunchSerializer
+#     permission_classes = [IsAuthenticated]
+#
+#     def get_queryset(self):
+#         queryset = TestLaunch.objects.filter(test__created_by=self.request.user)
+#
+#         # Обновим статусы просроченных сессий
+#         expired = queryset.filter(expires_at__lte=timezone.now(), is_active=True)
+#         expired.update(is_active=False)
+#
+#         return queryset.order_by('-launched_at')
+#
+#     def perform_create(self, serializer):
+#         test = serializer.validated_data['test']
+#         if test.created_by != self.request.user:
+#             raise PermissionDenied("Вы не являетесь владельцем этого теста.")
+#         serializer.save()
+#
+#     def perform_update(self, serializer):
+#         instance = serializer.instance
+#         if instance.test.created_by != self.request.user:
+#             raise PermissionDenied("Вы не являетесь владельцем этого теста.")
+#         serializer.save()
+#
+#     def perform_destroy(self, instance):
+#         if instance.test.created_by != self.request.user:
+#             raise PermissionDenied("Вы не являетесь владельцем этого теста.")
+#         instance.delete()
+
 class TestLaunchViewSet(viewsets.ModelViewSet):
     serializer_class = TestLaunchSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        test_id = self.request.query_params.get('test_id')
         queryset = TestLaunch.objects.filter(test__created_by=self.request.user)
 
-        # Обновим статусы просроченных сессий
-        expired = queryset.filter(expires_at__lte=timezone.now(), is_active=True)
-        expired.update(is_active=False)
+        if test_id:
+            queryset = queryset.filter(test_id=test_id)
+
+        for session in queryset:
+            session.check_activity()
 
         return queryset.order_by('-launched_at')
 
@@ -141,13 +218,108 @@ class TestLaunchViewSet(viewsets.ModelViewSet):
         test = serializer.validated_data['test']
         if test.created_by != self.request.user:
             raise PermissionDenied("Вы не являетесь владельцем этого теста.")
-        serializer.save()
+
+        instance = serializer.save()
+
+        # Если сессия запланирована (указано launched_at в будущем), делаем неактивной
+        if instance.launched_at and instance.launched_at > timezone.now():
+            instance.is_active = False
+            instance.save(update_fields=['is_active'])
 
     def perform_update(self, serializer):
         instance = serializer.instance
         if instance.test.created_by != self.request.user:
             raise PermissionDenied("Вы не являетесь владельцем этого теста.")
+
+        # Если в запросе есть expires_at и он в прошлом, завершаем сессию
+        if 'expires_at' in serializer.validated_data:
+            expires_at = serializer.validated_data['expires_at']
+            if expires_at and expires_at <= timezone.now():
+                serializer.validated_data['is_active'] = False
+
         serializer.save()
+
+    @action(detail=True, methods=['post'])
+    def force_complete(self, request, pk=None):
+        """Принудительно завершает сессию тестирования."""
+        instance = self.get_object()
+        if instance.test.created_by != request.user:
+            raise PermissionDenied("Вы не являетесь владельцем этого теста.")
+
+        instance.expires_at = timezone.now()
+        instance.is_active = False
+        instance.save(update_fields=['expires_at', 'is_active'])
+
+        return Response(TestLaunchSerializer(instance).data)
+
+    @action(detail=True, methods=['post'])
+    def restart(self, request, pk=None):
+        """Перезапускает завершенную сессию"""
+        session = self.get_object()
+
+        # Проверка прав (если нужно)
+        if session.test.created_by != request.user:
+            return Response({"error": "Нет прав на перезапуск"}, status=403)
+
+        # Проверка, что сессия завершена (неактивна)
+        if session.is_active:
+            return Response({"error": "Сессия уже активна"}, status=400)
+
+        # Сброс expires_at и обновление launched_at
+        session.expires_at = None
+        session.launched_at = timezone.now()
+        session.is_active = True
+        session.save()
+
+        return Response(TestLaunchSerializer(session).data)
+
+    @action(detail=False, methods=['get'], url_path='check-status/(?P<session_id>[^/.]+)', permission_classes = [AllowAny])
+
+    def check_status(self, request, session_id=None):
+        """
+        Проверяет статус сессии по session_id.
+        Возвращает:
+        - 404 если сессия не найдена
+        - 200 и данные сессии если активна
+        - 400 с сообщением если сессия завершена
+        - 202 с датой начала если сессия запланирована
+        """
+        try:
+            session = TestLaunch.objects.get(session_id=session_id)
+        except TestLaunch.DoesNotExist:
+            return Response(
+                {"detail": "Сессия не найдена"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Обновляем статус активности перед проверкой
+        session.check_activity()
+
+        if session.is_active:
+            serializer = self.get_serializer(session)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        if session.is_scheduled:
+            return Response(
+                {
+                    "status": "scheduled",
+                    "test_title": session.test.title,
+                    "launched_at": session.launched_at,
+                    "message": f"Сессия начнется {session.launched_at}"
+                },
+                status=status.HTTP_202_ACCEPTED
+            )
+
+        return Response(
+            {
+                "status": "expired",
+                "test_title": session.test.title,
+                "expires_at": session.expires_at,
+                "message": f"Сессия завершена {session.launched_at}"
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
 
     def perform_destroy(self, instance):
         if instance.test.created_by != self.request.user:
@@ -197,7 +369,7 @@ class SubmitAnswersStudentView(APIView):
         answers = serializer.validated_data["answers"]
 
         student = get_object_or_404(Student, student_id=student_id)
-        test_launch = get_object_or_404(TestLaunch, id=test_launch_id)
+        test_launch = get_object_or_404(TestLaunch, session_id=test_launch_id)
         test = test_launch.test  # получаем сам тест из сессии
 
         if StudentTestResult.objects.filter(student=student, test_launch=test_launch).exists():
@@ -281,6 +453,12 @@ class StudentTestAnswersView(APIView):
             student=student,
             question__test=test_launch.test
         )
+
+        if not answers.exists():
+            return Response(
+                {"detail": "Ученик не отправлял ответы на этот тест"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         result = StudentTestResult.objects.filter(
             student=student,
